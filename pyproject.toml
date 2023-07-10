@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "games-collection"
+version = "0.1.0"
+description = ""
+authors = ["hadrizi <vbyhgn@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "solitare"}, {include = "base"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pygame = "^2.5.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
