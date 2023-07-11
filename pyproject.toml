@@ -11,7 +11,9 @@ packages = [{include = "solitare"}, {include = "base"}]
 python = "^3.10"
 pygame = "^2.5.0"
 
-
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+solitare = "solitare.main:main"
