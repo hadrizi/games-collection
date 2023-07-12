@@ -1,9 +1,16 @@
 import pygame
 import random
+
+from typing import List
 from collections import namedtuple
 
 from base.game import GameAbstractBase
 from base.spritesheet import SpriteSheet
+
+BASE_CARD_ROUNDNESS = 20
+BASE_CARD_BORDER = 7
+BASE_CARD_SIZE = (256, 490)
+BASE_CARD_SIZE_MINIMIZED = (BASE_CARD_SIZE[0] * .4, BASE_CARD_SIZE[1] * .4)
 
 Textures = namedtuple("Textures", [
     "background", 
@@ -15,10 +22,22 @@ Textures = namedtuple("Textures", [
     "card_background"
 ])
 
+class CardObject:
+    def __init__(self, surface, rect) -> None:
+        self.surface: pygame.SurfaceType = surface
+        self.rect: pygame.Rect = rect
+
+
 class GameState:
     def __init__(self, cards) -> None:
-        self.cards = cards
+        self.cards: List[pygame.SurfaceType] = cards
         self.deck = self.cards.copy()
+        self.deck_rect = pygame.Rect(
+            10, 10, 
+            BASE_CARD_SIZE[0] * .4, BASE_CARD_SIZE[1] * .4
+        )
+        self.cards_on_field: List[CardObject] = []
+        self.active_card = None
         self.shuffle_deck()
 
     def shuffle_deck(self):
@@ -85,12 +104,34 @@ class SolitareGame(GameAbstractBase):
             if event.type == pygame.QUIT:
                 self.running = False
                 break
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                if self.game_state.deck:
-                    self.game_state.deck.pop()
+            
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if not event.button == 1:
+                    continue
 
-    def proccess_mouse_input(self):
-        ...
+                for card in self.game_state.cards_on_field:
+                    if card.rect.collidepoint(event.pos):
+                        self.game_state.active_card = card
+                
+                if self.game_state.deck_rect.collidepoint(event.pos) and self.game_state.deck:
+                    card_surface = self.game_state.deck.pop()
+                    self.game_state.cards_on_field.append(
+                        CardObject(card_surface, self.game_state.deck_rect.copy()))
+                    self.game_state.active_card = self.game_state.cards_on_field[-1]
+
+
+            if event.type == pygame.MOUSEBUTTONUP:
+                if not event.button == 1:
+                    continue
+                    
+                self.game_state.active_card = None
+
+            if event.type == pygame.MOUSEMOTION:
+                if not self.game_state.active_card:
+                    continue
+
+                self.game_state.active_card.rect.move_ip(event.rel)
+                    
 
     def update(self):
         ...
@@ -98,13 +139,14 @@ class SolitareGame(GameAbstractBase):
     def render(self):
         self.window.fill(self.textures.background)
         if self.game_state.deck:
-            self.window.blit(self.game_state.deck[-1], (0,0))
+            self.window.blit(
+                self.game_state.deck[-1], 
+                (self.game_state.deck_rect.x, self.game_state.deck_rect.y)
+            )
         
-        # loc = (0, 0)
-        # for suit in self.textures.suits.values():
-        #     self.window.blit(suit, tuple(loc))
-        #     loc = list(loc)
-        #     loc[0] += 50
+        for card in self.game_state.cards_on_field:
+            self.window.blit(card.surface, (card.rect.x, card.rect.y))
+
         pygame.display.update()
 
     def _build_card(self, suit, number) -> pygame.SurfaceType:
@@ -139,20 +181,39 @@ class SolitareGame(GameAbstractBase):
         for coord_alias in self.card_templates[number]:
             card_base.blit(suit_tex, self.card_coords[coord_alias])
 
-        return card_base
+        return pygame.transform.scale(card_base, BASE_CARD_SIZE_MINIMIZED)
 
     def _load_textures(self) -> Textures:
         sprite_sheet_image = (
             pygame.image.load('assets/card-numbers-sheet.png').convert_alpha())
         sprite_sheet = SpriteSheet(sprite_sheet_image)
 
-        card = pygame.Surface((256, 490)).convert_alpha()
+        card = pygame.Surface(BASE_CARD_SIZE).convert_alpha()
         card.fill((255, 255, 255))
         card.set_colorkey((0, 0, 0))
-        
-        card_background = pygame.Surface((256, 490)).convert_alpha()
+
+        card_background = pygame.Surface(BASE_CARD_SIZE).convert_alpha()
         card_background.fill((75, 58, 38))
         card_background.set_colorkey((0, 0, 0))
+        
+        card_size = card.get_size()
+        round_rect = pygame.Surface(card_size, pygame.SRCALPHA)
+        pygame.draw.rect(
+            round_rect, 
+            (255, 255, 255), 
+            (0, 0, *card_size),
+            border_radius=BASE_CARD_ROUNDNESS,
+        )
+        pygame.draw.rect(
+            round_rect, 
+            pygame.Color("Grey"), 
+            (0, 0, *card_size),
+            border_radius=BASE_CARD_ROUNDNESS,
+            width=BASE_CARD_BORDER
+        )
+
+        card.blit(round_rect, (0, 0), None, pygame.BLEND_RGBA_MIN)
+        card_background.blit(round_rect, (0, 0), None, pygame.BLEND_RGBA_MIN)
 
         return Textures(
             background=(51, 165, 49),
@@ -203,7 +264,6 @@ class SolitareGame(GameAbstractBase):
                 sprite_sheet.get_sprite(31, 48, 48, 1),
             ]
         )
-
 
 
 def main():

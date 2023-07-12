@@ -12,10 +12,6 @@ class GameAbstractBase(ABC):
         ...
 
     @abstractmethod
-    def proccess_mouse_input(self):
-        ...
-
-    @abstractmethod
     def update(self):
         ...
 
