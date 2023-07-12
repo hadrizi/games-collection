@@ -22,6 +22,8 @@ Textures = namedtuple("Textures", [
     "card_background"
 ])
 
+# TODO: create BaseObject class with rect and surface manipulation
+#       OR create RectObject class that takes *any* object passed to it and adds rect logic
 class CardObject:
     def __init__(self, surface, rect) -> None:
         self.surface: pygame.SurfaceType = surface
@@ -31,7 +33,7 @@ class CardObject:
 class GameState:
     def __init__(self, cards) -> None:
         self.cards: List[pygame.SurfaceType] = cards
-        self.deck = self.cards.copy()
+        self.deck = self.cards.copy() # TODO: deck should have its own object class
         self.deck_rect = pygame.Rect(
             10, 10, 
             BASE_CARD_SIZE[0] * .4, BASE_CARD_SIZE[1] * .4
@@ -99,6 +101,7 @@ class SolitareGame(GameAbstractBase):
                 cards.append(card)
         self.game_state = GameState(cards)
 
+    # TODO: all this if mess should be turned into different event maps
     def proccess_input(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -192,10 +195,9 @@ class SolitareGame(GameAbstractBase):
         card.fill((255, 255, 255))
         card.set_colorkey((0, 0, 0))
 
-        card_background = pygame.Surface(BASE_CARD_SIZE).convert_alpha()
-        card_background.fill((75, 58, 38))
-        card_background.set_colorkey((0, 0, 0))
+        card_background = card.copy().fill((75, 58, 38)) 
         
+        # XXX: pretty weird way to set border color and border radius for card
         card_size = card.get_size()
         round_rect = pygame.Surface(card_size, pygame.SRCALPHA)
         pygame.draw.rect(
@@ -211,7 +213,6 @@ class SolitareGame(GameAbstractBase):
             border_radius=BASE_CARD_ROUNDNESS,
             width=BASE_CARD_BORDER
         )
-
         card.blit(round_rect, (0, 0), None, pygame.BLEND_RGBA_MIN)
         card_background.blit(round_rect, (0, 0), None, pygame.BLEND_RGBA_MIN)
 
