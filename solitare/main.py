@@ -35,7 +35,7 @@ class GameState:
         self.cards: List[pygame.SurfaceType] = cards
         self.deck = self.cards.copy() # TODO: deck should have its own object class
         self.deck_rect = pygame.Rect(
-            10, 10, 
+            10, 10,
             BASE_CARD_SIZE[0] * .4, BASE_CARD_SIZE[1] * .4
         )
         self.cards_on_field: List[CardObject] = []
@@ -116,6 +116,9 @@ class SolitareGame(GameAbstractBase):
                     if card.rect.collidepoint(event.pos):
                         self.game_state.active_card = card
                 
+                if self.game_state.active_card:
+                    continue
+                
                 if self.game_state.deck_rect.collidepoint(event.pos) and self.game_state.deck:
                     card_surface = self.game_state.deck.pop()
                     self.game_state.cards_on_field.append(
@@ -195,7 +198,8 @@ class SolitareGame(GameAbstractBase):
         card.fill((255, 255, 255))
         card.set_colorkey((0, 0, 0))
 
-        card_background = card.copy().fill((75, 58, 38)) 
+        card_background = card.copy()
+        card_background.fill((75, 58, 38)) 
         
         # XXX: pretty weird way to set border color and border radius for card
         card_size = card.get_size()
