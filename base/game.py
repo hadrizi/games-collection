@@ -18,7 +18,7 @@ class GameAbstractBase(ABC):
     @abstractmethod
     def render(self):
         ...
-
+    
     def run(self):
         while self.running:
             self.proccess_input()

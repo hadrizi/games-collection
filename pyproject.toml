@@ -5,11 +5,13 @@ description = ""
 authors = ["hadrizi <vbyhgn@gmail.com>"]
 license = "MIT"
 readme = "README.md"
-packages = [{include = "solitare"}, {include = "base"}]
+packages = [{include = "solitare"}, {include = "base"}, {include = "server"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
 pygame = "^2.5.0"
+websockets = "^11.0.3"
+supervisor = "^4.2.5"
 
 [build-system]
 requires = ["poetry-core"]
@@ -17,3 +19,5 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 solitare = "solitare.main:main"
+server_local = "server.main:run"
+server = "server.main:run"

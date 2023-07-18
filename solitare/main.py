@@ -1,7 +1,13 @@
+import asyncio
+import json
+import threading
 import pygame
 import random
+import uuid
 
-from typing import List
+from websockets.sync.client import connect, ClientConnection
+
+from typing import List, Dict
 from collections import namedtuple
 
 from base.game import GameAbstractBase
@@ -19,12 +25,21 @@ Textures = namedtuple("Textures", [
     "black_numbers", 
     "red_numbers", 
     "card", 
-    "card_background"
+    "card_background",
+    "cursor",
+    "font"
 ])
 
 # TODO: create BaseObject class with rect and surface manipulation
 #       OR create RectObject class that takes *any* object passed to it and adds rect logic
 class CardObject:
+    def __init__(self, surface, rect, id) -> None:
+        self.surface: pygame.SurfaceType = surface
+        self.rect: pygame.Rect = rect
+        self.id = id
+
+
+class PlayerObject:
     def __init__(self, surface, rect) -> None:
         self.surface: pygame.SurfaceType = surface
         self.rect: pygame.Rect = rect
@@ -32,18 +47,15 @@ class CardObject:
 
 class GameState:
     def __init__(self, cards) -> None:
-        self.cards: List[pygame.SurfaceType] = cards
-        self.deck = self.cards.copy() # TODO: deck should have its own object class
+        self.cards: Dict[str, pygame.SurfaceType] = cards
         self.deck_rect = pygame.Rect(
             10, 10,
             BASE_CARD_SIZE[0] * .4, BASE_CARD_SIZE[1] * .4
         )
-        self.cards_on_field: List[CardObject] = []
+        self.cards_on_field: Dict[str, CardObject] = {}
+        self.players: Dict[str, PlayerObject] = {}
         self.active_card = None
-        self.shuffle_deck()
-
-    def shuffle_deck(self):
-        random.shuffle(self.deck)
+        self.top_card = None
 
 
 class SolitareGame(GameAbstractBase):
@@ -87,18 +99,27 @@ class SolitareGame(GameAbstractBase):
         ("center_middle_suit", ), # A
     ]
 
-    def __init__(self) -> None:
+    def __init__(self, ws: ClientConnection) -> None:
         super().__init__()
         pygame.init()
         self.window = pygame.display.set_mode((640, 640))
         pygame.display.set_caption(self.game_name)
         self.textures = self._load_textures()
+        self.websocket = ws
+        self.player_id = uuid.uuid4()
+        self.websocket.send(json.dumps({"type": "init", "player_id": str(self.player_id)}))
 
-        cards = []
+        cards = {}
+        number_map = {
+            10: "J",
+            11: "K",
+            12: "Q",
+            13: "A"
+        }
         for suit in ["hearts", "diamonds", "clubs", "spades"]:
             for number in range(1, len(self.textures.red_numbers)):
                 card = self._build_card(suit, number)
-                cards.append(card)
+                cards[f"{suit}_{number+1 if number < 10 else number_map[number]}"] = card
         self.game_state = GameState(cards)
 
     # TODO: all this if mess should be turned into different event maps
@@ -112,18 +133,21 @@ class SolitareGame(GameAbstractBase):
                 if not event.button == 1:
                     continue
 
-                for card in self.game_state.cards_on_field:
+                for card in self.game_state.cards_on_field.values():
                     if card.rect.collidepoint(event.pos):
                         self.game_state.active_card = card
                 
                 if self.game_state.active_card:
                     continue
                 
-                if self.game_state.deck_rect.collidepoint(event.pos) and self.game_state.deck:
-                    card_surface = self.game_state.deck.pop()
-                    self.game_state.cards_on_field.append(
-                        CardObject(card_surface, self.game_state.deck_rect.copy()))
-                    self.game_state.active_card = self.game_state.cards_on_field[-1]
+                if self.game_state.deck_rect.collidepoint(event.pos):
+                    self.game_state.cards_on_field[self.game_state.top_card[1]] = (
+                        CardObject(self.game_state.top_card[0].copy(), self.game_state.deck_rect.copy(), self.game_state.top_card[1]))
+                    self.game_state.active_card = self.game_state.cards_on_field[self.game_state.top_card[1]]
+                    self.websocket.send(json.dumps({
+                        "type": "card_draw",
+                        "card": self.game_state.top_card[1]
+                    }))
 
 
             if event.type == pygame.MOUSEBUTTONUP:
@@ -133,25 +157,38 @@ class SolitareGame(GameAbstractBase):
                 self.game_state.active_card = None
 
             if event.type == pygame.MOUSEMOTION:
+                self.websocket.send(json.dumps({
+                    "type": "mouse_move", 
+                    "pos": event.pos, 
+                    "player_id": str(self.player_id)
+                }))
+
                 if not self.game_state.active_card:
                     continue
 
                 self.game_state.active_card.rect.move_ip(event.rel)
-                    
-
+                self.websocket.send(json.dumps({
+                    "type": "card_move",
+                    "pos": (self.game_state.active_card.rect.x, self.game_state.active_card.rect.y),
+                    "card": self.game_state.active_card.id
+                }))
+   
     def update(self):
         ...
 
     def render(self):
         self.window.fill(self.textures.background)
-        if self.game_state.deck:
+        if self.game_state.top_card:
             self.window.blit(
-                self.game_state.deck[-1], 
+                self.game_state.top_card[0], 
                 (self.game_state.deck_rect.x, self.game_state.deck_rect.y)
             )
         
-        for card in self.game_state.cards_on_field:
+        for card in self.game_state.cards_on_field.values():
             self.window.blit(card.surface, (card.rect.x, card.rect.y))
+
+        for player in self.game_state.players.values():
+            self.window.blit(player.surface, (player.rect.x, player.rect.y))
 
         pygame.display.update()
 
@@ -193,6 +230,9 @@ class SolitareGame(GameAbstractBase):
         sprite_sheet_image = (
             pygame.image.load('assets/card-numbers-sheet.png').convert_alpha())
         sprite_sheet = SpriteSheet(sprite_sheet_image)
+        cursor_image = (
+            pygame.image.load('assets/cursor.png').convert_alpha())
+        cursor_sheet = SpriteSheet(cursor_image)
 
         card = pygame.Surface(BASE_CARD_SIZE).convert_alpha()
         card.fill((255, 255, 255))
@@ -221,6 +261,8 @@ class SolitareGame(GameAbstractBase):
         card_background.blit(round_rect, (0, 0), None, pygame.BLEND_RGBA_MIN)
 
         return Textures(
+            font=pygame.font.Font(None, 20),
+            cursor=cursor_sheet.get_sprite(0, 48, 48, .4),
             background=(51, 165, 49),
             card=card,
             card_background=card_background,
@@ -271,9 +313,77 @@ class SolitareGame(GameAbstractBase):
         )
 
 
+def accept_ws_messages(game: SolitareGame):
+    for message in game.websocket:
+        event = json.loads(message)
+        
+        if event["type"] == "top_card":
+            game.game_state.top_card = (game.game_state.cards[event["card"]], event["card"])
+        
+        if event["type"] == "joined":
+            cursor_surface: pygame.SurfaceType = game.textures.cursor.copy()
+            player_text = game.textures.font.render(event["player_id"], False, (0,0,0))
+            
+            player_surface = pygame.Surface(
+                (player_text.get_width(), player_text.get_height() + cursor_surface.get_height()),
+                pygame.SRCALPHA
+            )
+            player_surface.blit(cursor_surface, (0, 0))
+            player_surface.blit(player_text, (cursor_surface.get_width()+5, 0))
+            
+            game.game_state.players[event["player_id"]] = PlayerObject(
+                player_surface,
+                game.game_state.deck_rect.copy()
+            )
+
+        if event["type"] == "players":
+            for player_id in event["players"]:
+                cursor_surface: pygame.SurfaceType = game.textures.cursor.copy()
+                player_text = game.textures.font.render(player_id, False, (0,0,0))
+                
+                player_surface = pygame.Surface(
+                    (player_text.get_width(), player_text.get_height() + cursor_surface.get_height()),
+                    pygame.SRCALPHA
+                )
+                player_surface.blit(cursor_surface, (0, 0))
+                player_surface.blit(player_text, (cursor_surface.get_width()+5, 0))
+
+                game.game_state.players[player_id] = PlayerObject(
+                    player_surface,
+                    game.game_state.deck_rect.copy()
+                )
+
+        if event["type"] == "mouse_move":
+            try:
+                game.game_state.players[event["player_id"]].rect.move_ip(
+                    event["pos"][0] - game.game_state.players[event["player_id"]].rect.x,
+                    event["pos"][1] - game.game_state.players[event["player_id"]].rect.y,
+                )
+            except KeyError:
+                pass
+        
+        if event["type"] == "card_move":
+            game.game_state.cards_on_field[event["card"]].rect.move_ip(
+                event["pos"][0] - game.game_state.cards_on_field[event["card"]].rect.x,
+                event["pos"][1] - game.game_state.cards_on_field[event["card"]].rect.y,
+            )
+
+        if event["type"] == "card_draw":
+            game.game_state.cards_on_field[event["card"]] = (
+                CardObject(game.game_state.cards[event["card"]], game.game_state.deck_rect.copy(), event["card"]))
+
+
 def main():
-    game = SolitareGame()
-    game.run()
+    with connect("ws://localhost:8001") as websocket:
+        game = SolitareGame(websocket)
+        game_thread = threading.Thread(target=game.run)
+        ws_thread = threading.Thread(target=accept_ws_messages, args=(game, ))
+
+        game_thread.start()
+        ws_thread.start()
+
+        game_thread.join()
+        ws_thread.join()
 
 
 if __name__ == "__main__":
